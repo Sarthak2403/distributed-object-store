@@ -7,10 +7,11 @@ import (
 )
 
 type ChunkInfo struct {
-	ID       string `json:"id"`
-	Node     string `json:"node"`
-	Checksum string `json:"checksum"`
-	Size     int    `json:"size"`
+	Replicas []string `json:"replicas,omitempty"`
+	ID       string   `json:"id"`
+	Node     string   `json:"node"`
+	Checksum string   `json:"checksum"`
+	Size     int      `json:"size"`
 }
 
 type ObjectInfo struct {

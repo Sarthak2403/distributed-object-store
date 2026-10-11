@@ -84,6 +84,18 @@ func upload(
 	clients []pb.StorageServiceClient,
 	metaClient pb.MetadataServiceClient,
 ) error {
+	if len(nodes) != len(clients) {
+		return fmt.Errorf("storage node/client count mismatch")
+	}
+	unique := make(map[string]bool)
+	for _, node := range nodes {
+		if node != "" {
+			unique[node] = true
+		}
+	}
+	if len(unique) < 2 {
+		return fmt.Errorf("at least 2 distinct storage nodes are required")
+	}
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -115,27 +127,34 @@ func upload(
 	objectInfo := &pb.ObjectMetadata{Id: objectID}
 
 	for i, c := range chunks {
-		nodeIndex := i % len(clients)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, err := clients[nodeIndex].StoreChunk(ctx, &pb.StoreChunkRequest{
-			ChunkId: c.ID,
-			Data:    c.Data,
-		})
-		cancel()
-
-		if err != nil {
-			return err
+		var replicas []string
+		seen := make(map[string]bool)
+		for offset := 0; offset < len(nodes) && len(replicas) < 2; offset++ {
+			nodeIndex := (i + offset) % len(nodes)
+			address := nodes[nodeIndex]
+			if address == "" || seen[address] {
+				continue
+			}
+			seen[address] = true
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			response, err := clients[nodeIndex].StoreChunk(ctx, &pb.StoreChunkRequest{
+				ChunkId: c.ID,
+				Data:    c.Data,
+			})
+			cancel()
+			if err != nil || !response.GetSuccess() {
+				continue
+			}
+			replicas = append(replicas, address)
 		}
-
+		if len(replicas) != 2 {
+			return fmt.Errorf("chunk %s: required 2 replica writes, succeeded %d", c.ID, len(replicas))
+		}
 		objectInfo.Chunks = append(objectInfo.Chunks, &pb.ChunkMetadata{
-			Id:       c.ID,
-			Node:     nodes[nodeIndex],
-			Checksum: c.Checksum,
-			Size:     int64(len(c.Data)),
+			Id: c.ID, Node: replicas[0], Replicas: replicas,
+			Checksum: c.Checksum, Size: int64(len(c.Data)),
 		})
-
-		fmt.Printf("Uploaded %s to %s\n", c.ID, nodes[nodeIndex])
+		fmt.Printf("Uploaded %s to %v\n", c.ID, replicas)
 	}
 
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
@@ -177,36 +196,14 @@ func download(
 	defer file.Close()
 
 	for _, c := range response.GetObject().GetChunks() {
-		conn, err := grpc.NewClient(
-			c.GetNode(),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
+		data, node, err := fetchChunk(c)
 		if err != nil {
 			return err
 		}
-
-		client := pb.NewStorageServiceClient(conn)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		chunkResponse, err := client.GetChunk(ctx, &pb.GetChunkRequest{
-			ChunkId: c.GetId(),
-		})
-		cancel()
-		conn.Close()
-
-		if err != nil {
+		if _, err := file.Write(data); err != nil {
 			return err
 		}
-
-		if !checksum.Verify(chunkResponse.Data, c.GetChecksum()) {
-			return fmt.Errorf("checksum mismatch for %s", c.GetId())
-		}
-
-		if _, err := file.Write(chunkResponse.Data); err != nil {
-			return err
-		}
-
-		fmt.Printf("Downloaded %s from %s\n", c.GetId(), c.GetNode())
+		fmt.Printf("Downloaded %s from %s\n", c.GetId(), node)
 	}
 
 	if err := file.Sync(); err != nil {
@@ -223,4 +220,39 @@ func download(
 
 	fmt.Println("File downloaded successfully!")
 	return nil
+}
+
+// Legacy metadata has only Node; keep those objects readable.
+func fetchChunk(c *pb.ChunkMetadata) ([]byte, string, error) {
+	nodes := append([]string{c.GetNode()}, c.GetReplicas()...)
+	seen := make(map[string]bool)
+	var lastErr error
+	for _, node := range nodes {
+		if node == "" || seen[node] {
+			continue
+		}
+		seen[node] = true
+		conn, err := grpc.NewClient(node, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		response, err := pb.NewStorageServiceClient(conn).GetChunk(ctx, &pb.GetChunkRequest{ChunkId: c.GetId()})
+		cancel()
+		conn.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !checksum.Verify(response.GetData(), c.GetChecksum()) {
+			lastErr = fmt.Errorf("checksum mismatch at %s", node)
+			continue
+		}
+		return response.GetData(), node, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no replica locations")
+	}
+	return nil, "", fmt.Errorf("chunk %s: all replicas failed: %w", c.GetId(), lastErr)
 }

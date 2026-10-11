@@ -32,6 +32,7 @@ func (s *MetadataServer) SaveObject(
 
 	for _, c := range req.GetObject().GetChunks() {
 		object.Chunks = append(object.Chunks, ChunkInfo{
+			Replicas: append([]string(nil), c.GetReplicas()...),
 			ID:       c.GetId(),
 			Node:     c.GetNode(),
 			Checksum: c.GetChecksum(),
@@ -65,6 +66,7 @@ func (s *MetadataServer) GetObject(
 
 	for _, c := range object.Chunks {
 		result.Chunks = append(result.Chunks, &pb.ChunkMetadata{
+			Replicas: append([]string(nil), c.Replicas...),
 			Id:       c.ID,
 			Node:     c.Node,
 			Checksum: c.Checksum,

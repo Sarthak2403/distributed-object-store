@@ -1,6 +1,10 @@
 package metadata
 
-import "testing"
+import (
+	"context"
+	pb "distributed-object-store/proto"
+	"testing"
+)
 
 func TestMetadataStore(t *testing.T) {
 	store, err := NewStore(t.TempDir())
@@ -40,5 +44,41 @@ func TestMetadataStore(t *testing.T) {
 
 	if result.Chunks[0].Node != "localhost:50052" {
 		t.Fatal("Incorrect storage node")
+	}
+}
+
+func TestReplicaPersistence(t *testing.T) {
+	path := t.TempDir()
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object := ObjectInfo{ID: "replicated", Chunks: []ChunkInfo{{ID: "chunk", Node: "node1", Replicas: []string{"node1", "node2"}}}}
+	if err := store.SaveObject(object); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := NewMetadataServer(store)
+	response, err := server.GetObject(context.Background(), &pb.GetObjectRequest{ObjectId: object.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replicas := response.GetObject().GetChunks()[0].GetReplicas()
+	if len(replicas) != 2 || replicas[0] != "node1" || replicas[1] != "node2" {
+		t.Fatalf("replicas lost: %v", replicas)
+	}
+	if _, err := server.SaveObject(context.Background(), &pb.SaveObjectRequest{Object: response.GetObject()}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.GetObject(object.ID)
+	if err != nil || len(saved.Chunks[0].Replicas) != 2 {
+		t.Fatalf("RPC lost replicas: %v", err)
 	}
 }

@@ -1,6 +1,6 @@
 # Distributed Object Storage Service
 
-A distributed object storage system built with **Go, gRPC, BadgerDB, and Docker**. Files are split into chunks, distributed across three storage nodes, and reconstructed using metadata stored in a persistent key-value database.
+A distributed object storage system built with **Go, gRPC, BadgerDB, and Docker**. Files are split into chunks, each replicated across two distinct storage nodes (replication factor 2) within a three-node cluster, and reconstructed using persistent metadata.
 
 ## Architecture
 
@@ -8,21 +8,21 @@ The system consists of:
 
 - **CLI Client:** Uploads and downloads files.
 - **Storage Nodes:** Three independent gRPC servers storing chunks on disk.
-- **Metadata Server:** A gRPC server using BadgerDB to persist object and chunk metadata.
+- **Metadata Server:** A gRPC server using BadgerDB to persist object and chunk metadata, including replica locations carried in Protocol Buffers messages.
 - **Docker Compose:** Runs the storage nodes and metadata server in isolated containers with persistent volumes.
 
 ### Upload Flow
 
 1. Read a file and split it into 1 MiB chunks.
 2. Calculate a SHA-256 checksum for each chunk.
-3. Distribute chunks across storage nodes using round-robin placement.
-4. Save chunk locations, sizes, and checksums in BadgerDB through the metadata server.
+3. Write each chunk to two distinct storage nodes, starting with round-robin placement and trying other nodes if a write fails.
+4. Save replica locations, sizes, and checksums in BadgerDB through the metadata server only after both writes succeed for every chunk.
 
 ### Download Flow
 
 1. Retrieve the object's metadata.
-2. Fetch each chunk from its assigned storage node.
-3. Verify each chunk's SHA-256 checksum.
+2. Fetch each chunk from a recorded replica.
+3. Verify its SHA-256 checksum; automatically try another replica if retrieval or checksum verification fails.
 4. Reconstruct the file in the original order.
 5. Rename the completed temporary file to the requested output path.
 
@@ -83,7 +83,7 @@ Docker volumes preserve stored data unless explicitly removed.
 
 ## Testing
 
-Run unit tests:
+Run tests, including replication, replica metadata persistence, and verified download recovery after a single storage node fails or returns corrupted data:
 
 ```bash
 go test ./...
@@ -121,6 +121,8 @@ These are local measurements of direct chunk uploads, excluding metadata operati
 ## Reliability and Safety
 
 - SHA-256 checksum verification detects corrupted downloaded chunks.
+- Two replicas per chunk allow automatic download recovery when one storage node fails.
+- Legacy objects with a single recorded node remain readable, but have no replica failover until replicated.
 - Persistent Docker volumes preserve chunk data and metadata across container restarts.
 - Chunk ID validation rejects direct path-traversal attempts.
 - Temporary download files prevent incomplete downloads from replacing the requested destination.
@@ -128,7 +130,8 @@ These are local measurements of direct chunk uploads, excluding metadata operati
 
 ## Current Limitations
 
-- Each chunk is stored on one node; replication and automatic failover are not implemented.
+- Replication requires two successful writes; automatic repair of lost replicas is not implemented.
+- The metadata server remains a single point of failure.
 - Storage-node addresses are statically configured.
 - Duplicate-object checks are not concurrency-safe.
 - Failed uploads can leave orphaned chunks.
@@ -138,7 +141,7 @@ These are local measurements of direct chunk uploads, excluding metadata operati
 
 ## Future Improvements
 
-- Chunk replication and automatic failover
+- Automatic replica repair and metadata-server redundancy
 - Streaming uploads and downloads
 - Atomic object creation and upload cleanup
 - Dynamic storage-node discovery

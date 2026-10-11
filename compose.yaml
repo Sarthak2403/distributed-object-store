@@ -1,0 +1,38 @@
+services:
+  storage1:
+    build: .
+    command: ["storage-node", "-port", "50051", "-data", "/data"]
+    ports:
+      - "50052:50051"
+    volumes:
+      - storage1-data:/data
+
+  storage2:
+    build: .
+    command: ["storage-node", "-port", "50051", "-data", "/data"]
+    ports:
+      - "50053:50051"
+    volumes:
+      - storage2-data:/data
+
+  storage3:
+    build: .
+    command: ["storage-node", "-port", "50051", "-data", "/data"]
+    ports:
+      - "50054:50051"
+    volumes:
+      - storage3-data:/data
+
+  metadata:
+    build: .
+    command: ["metadata-server", "-port", "50055", "-data", "/data"]
+    ports:
+      - "50055:50055"
+    volumes:
+      - metadata-data:/data
+
+volumes:
+  storage1-data:
+  storage2-data:
+  storage3-data:
+  metadata-data:

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package storage;
+
+option go_package = "distributed-object-store/proto;storagepb";
+
+service StorageService {
+    rpc StoreChunk(StoreChunkRequest) returns (StoreChunkResponse);
+    rpc GetChunk(GetChunkRequest) returns (GetChunkResponse);
+}
+
+message StoreChunkRequest {
+    string chunk_id = 1;
+    bytes data = 2;
+}
+
+message StoreChunkResponse {
+    bool success = 1;
+}
+
+message GetChunkRequest {
+    string chunk_id = 1;
+}
+
+message GetChunkResponse {
+    bytes data = 1;
+}

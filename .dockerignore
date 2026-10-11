@@ -1,0 +1,5 @@
+.git
+data/
+*.bin
+downloaded.txt
+sample.txt

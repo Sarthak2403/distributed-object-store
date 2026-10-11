@@ -1,0 +1,34 @@
+# Local storage and databases
+data/
+*.db
+*.vlog
+*.sst
+*.mem
+*.key
+*.lock
+
+# Generated test files
+*.bin
+sample.txt
+downloaded.txt
+verified.bin
+safe-restored.bin
+unique-test.txt
+unique-restored.txt
+missing.bin
+
+# Build artifacts
+bin/
+dist/
+*.exe
+
+# macOS and editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+docker-restored.txt
+docker-test.txt

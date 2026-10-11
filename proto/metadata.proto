@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package metadata;
+
+option go_package = "distributed-object-store/proto;storagepb";
+
+service MetadataService {
+  rpc SaveObject(SaveObjectRequest) returns (SaveObjectResponse);
+  rpc GetObject(GetObjectRequest) returns (GetObjectResponse);
+}
+
+message ChunkMetadata {
+  string id = 1;
+  string node = 2;
+  string checksum = 3;
+  int64 size = 4;
+}
+
+message ObjectMetadata {
+  string id = 1;
+  repeated ChunkMetadata chunks = 2;
+}
+
+message SaveObjectRequest {
+  ObjectMetadata object = 1;
+}
+
+message SaveObjectResponse {
+  bool success = 1;
+}
+
+message GetObjectRequest {
+  string object_id = 1;
+}
+
+message GetObjectResponse {
+  ObjectMetadata object = 1;
+}
